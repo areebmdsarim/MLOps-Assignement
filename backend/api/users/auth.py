@@ -9,8 +9,6 @@ from backend.db.models.users import Users  # models
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from jose import jwt, JWTError
-import logging
-
 router = APIRouter(
     prefix='/auth',
     tags=['auth']
@@ -121,3 +119,4 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
         return {'username': username}
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
+
