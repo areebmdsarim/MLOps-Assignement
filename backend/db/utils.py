@@ -1,44 +1,68 @@
-from sqlalchemy import text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from fuzzywuzzy import fuzz
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from typing import List, Dict
 
-from backend.settings import settings
+def infer_relationships(data1: pd.DataFrame, data2: pd.DataFrame) -> List[Dict[str, float]]:
+    relationships = []
 
+    # Clean columns
+    data1.columns = data1.columns.str.strip().str.lower()
+    data2.columns = data2.columns.str.strip().str.lower()
 
-async def create_database() -> None:
-    """Create a database."""
-    db_url = make_url(str(settings.db_url.with_path("/postgres")))
-    engine = create_async_engine(db_url, isolation_level="AUTOCOMMIT")
+    # Print columns for debugging
+    print("Data1 Columns:", data1.columns)
+    print("Data2 Columns:", data2.columns)
 
-    async with engine.connect() as conn:
-        database_existance = await conn.execute(
-            text(
-                f"SELECT 1 FROM pg_database WHERE datname='{settings.db_base}'",  # noqa: E501, S608
-            ),
-        )
-        database_exists = database_existance.scalar() == 1
+    matched_columns = []
 
-    if database_exists:
-        await drop_database()
+    # Fuzzy matching columns
+    for column1 in data1.columns:
+        for column2 in data2.columns:
+            # Compare column names using fuzzy matching
+            name_similarity = fuzz.ratio(column1.lower(), column2.lower())
+            if name_similarity > 70:  # Adjust threshold if needed
+                matched_columns.append((column1, column2))
 
-    async with engine.connect() as conn:  # noqa: WPS440
-        await conn.execute(
-            text(
-                f'CREATE DATABASE "{settings.db_base}" ENCODING "utf8" TEMPLATE template1',  # noqa: E501
-            ),
-        )
+    print("Matched Columns:", matched_columns)  # Print matched columns for debugging
 
+    if not matched_columns:
+        return relationships
 
-async def drop_database() -> None:
-    """Drop current database."""
-    db_url = make_url(str(settings.db_url.with_path("/postgres")))
-    engine = create_async_engine(db_url, isolation_level="AUTOCOMMIT")
-    async with engine.connect() as conn:
-        disc_users = (
-            "SELECT pg_terminate_backend(pg_stat_activity.pid) "  # noqa: S608
-            "FROM pg_stat_activity "
-            f"WHERE pg_stat_activity.datname = '{settings.db_base}' "
-            "AND pid <> pg_backend_pid();"
-        )
-        await conn.execute(text(disc_users))
-        await conn.execute(text(f'DROP DATABASE "{settings.db_base}"'))
+    # Loop over each matched pair of columns
+    for column1, column2 in matched_columns:
+        data1_col = data1[column1]
+        data2_col = data2[column2]
+
+        # Ensure we are working with numeric columns
+        if not pd.api.types.is_numeric_dtype(data1_col) or not pd.api.types.is_numeric_dtype(data2_col):
+            continue  # Skip non-numeric columns
+
+        # Create a DataFrame for training the model
+        combined_data = pd.DataFrame({
+            data1_col.name: data1_col,
+            data2_col.name: data2_col
+        })
+
+        # Create the target column 'is_related' based on column matching
+        combined_data['is_related'] = combined_data[data1_col.name] == combined_data[data2_col.name]
+
+        # Prepare features (X) and target (y)
+        X = combined_data[[data1_col.name, data2_col.name]]
+        y = combined_data['is_related']
+
+        # Initialize and train the Random Forest model
+        model = RandomForestClassifier()
+        model.fit(X, y)
+
+        # Get the confidence score for this pair of columns
+        confidence_score = model.score(X, y)
+
+        # Store the relationship and confidence score
+        relationships.append({
+            'column_1': data1_col.name,
+            'column_2': data2_col.name,
+            'confidence_score': confidence_score
+        })
+
+    return relationships

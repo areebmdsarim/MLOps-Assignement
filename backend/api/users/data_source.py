@@ -9,6 +9,10 @@ from dotenv import load_dotenv
 import requests
 import google.generativeai as genai
 import os
+import pandas as pd
+from backend.db.utils import infer_relationships
+from fuzzywuzzy import fuzz
+
 
 
 router = APIRouter(
@@ -31,6 +35,14 @@ class TableResponse(BaseModel):
 class ColumnResponse(BaseModel):
     name: str
     data_type: str
+
+class TableDependencyResponse(BaseModel):
+    table_name: str
+    related_table: str
+    related_column: str
+    relationship_type: str  # "foreign_key", "heuristic", etc.
+    confidence_score: float  # Confidence score for ML models
+
 
 class DataSourceResponse(BaseModel):
     id: int
@@ -189,62 +201,66 @@ def get_gemini_description(prompt: str) -> str:
         )
 
 @router.get(
-    "/{data_source_id}/databases/{database_name}/tables/{table_name}/describe",
-    response_model=TableDescriptionResponse,
+    "/{data_source_id}/table_dependencies",
+    response_model=List[TableDependencyResponse],
 )
-async def describe_table(
-    data_source_id: int,
-    database_name: str,
-    table_name: str,
-    db: db_dependency,
-):
-    # Fetch the data source
-    data_source = db.query(DataSource).filter(DataSource.id == data_source_id).first()
-    if not data_source:
+async def find_table_dependencies(data_source_id: int, db: db_dependency):
+    """
+    Find tables with column dependencies using a machine learning model or heuristics.
+    """
+    # Fetch all tables and columns for the data source
+    tables = (
+        db.query(Table)
+        .filter(Table.database_id.in_(
+            db.query(Database.id).filter(Database.data_source_id == data_source_id)
+        ))
+        .all()
+    )
+
+    # Create a dictionary to store tables and their columns
+    table_columns = {}
+    for table in tables:
+        table_columns[table.name] = [
+            {"name": column.name, "data_type": column.data_type}
+            for column in table.columns
+        ]
+
+    dependencies = []
+
+    # Compare columns between tables
+    for table_name, columns in table_columns.items():
+        for other_table_name, other_columns in table_columns.items():
+            if table_name == other_table_name:
+                continue  # Skip comparing the same table
+
+            for column in columns:
+                for other_column in other_columns:
+                    if column["data_type"] == other_column["data_type"]:
+                        # Use ML to infer the relationship between columns
+                        data1 = pd.DataFrame({column["name"]: [value for value in range(100)]})  # Sample data for column 1
+                        data2 = pd.DataFrame({other_column["name"]: [value for value in range(100)]})
+                         # Sample data for column 2
+
+                        # Get ML-based relationships and confidence scores
+                        inferred_relationships = infer_relationships(data1, data2)
+                        if infer_relationships :
+                        # If the confidence score is above a threshold, add it to the dependencies
+                            for relationship in inferred_relationships:
+                                if relationship['confidence_score'] > 0.7:  # Example threshold
+                                    dependencies.append(
+                                        TableDependencyResponse(
+                                            table_name=table_name,
+                                            related_table=other_table_name,
+                                            related_column=column["name"],
+                                            relationship_type="ml_inferred",  # Using ML inference
+                                            confidence_score=relationship['confidence_score'],
+                                        )
+                                    )
+
+    if not dependencies:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found."
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No table dependencies found.",
         )
 
-    # Connect to the database
-    import psycopg2
-
-    try:
-        conn = psycopg2.connect(data_source.connection_string)
-        cursor = conn.cursor()
-
-        # Describe the table structure
-        cursor.execute(f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' AND table_schema = 'public';")
-        columns = cursor.fetchall()
-        if not columns:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Table not found."
-            )
-
-        # Generate descriptions using Gemini API
-        table_prompt = f"Describe the purpose and structure of the table '{table_name}'."
-        table_description = get_gemini_description(table_prompt)
-        
-        column_descriptions = []
-        for column_name, data_type in columns:
-            column_prompt = (
-                f"Describe the column '{column_name}' with data type '{data_type}' in the table '{table_name}'."
-            )
-            column_description = get_gemini_description(column_prompt)
-            column_descriptions.append(
-                {"name": column_name, "description": column_description}
-            )
-
-        return TableDescriptionResponse(
-            table_description=table_description, columns=column_descriptions
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to describe table: {str(e)}",
-        )
-    finally:
-        if conn:
-            cursor.close()
-            conn.close()
-
+    return dependencies
