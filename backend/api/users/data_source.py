@@ -251,7 +251,7 @@ async def find_table_dependencies(data_source_id: int, db: db_dependency):
                                         TableDependencyResponse(
                                             table_name=table_name,
                                             related_table=other_table_name,
-                                            related_column=column["name"],
+                                            related_column=column["name"] + " " + other_column["name"],
                                             relationship_type="ml_inferred",  # Using ML inference
                                             confidence_score=relationship['confidence_score'],
                                         )

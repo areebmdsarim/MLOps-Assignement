@@ -10,7 +10,6 @@ class DataSource(Base):
     name = Column(String, unique=True)
     db_type = Column(String, default="postgresql", nullable=False)  # PostgreSQL, MySQL
     connection_string = Column(String)  # This can be the connection URL or credentials
-    
     # Relationships for databases, tables, and columns
     databases = relationship("Database", back_populates="data_source")
 
@@ -20,7 +19,6 @@ class Database(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
     data_source_id = Column(Integer, ForeignKey('data_sources.id'))
-
     data_source = relationship("DataSource", back_populates="databases")
     tables = relationship("Table", back_populates="database")
 
