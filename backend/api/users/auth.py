@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette import status
-from backend.db.models.base import SessionLocal  # database
+from backend.db.models.base import Postgresql_SessionLocal, MySQL_SessionLocal  # database
 from backend.db.models.users import Users  # models
 from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from jose import jwt, JWTError
+
 router = APIRouter(
     prefix='/auth',
     tags=['auth']
@@ -34,19 +35,26 @@ class Token(BaseModel):
     token_type: str
 
 
-def get_db():
-    db = SessionLocal()
+def get_Postgresql_db():
+    db = Postgresql_SessionLocal()
     try:
         yield db
     finally:
         db.close()
 
+def get_MySQL_db():
+    db = MySQL_SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-db_dependency = Annotated[Session, Depends(get_db)]
+Postgresql_db_dependency = Annotated[Session, Depends(get_Postgresql_db)]
 
+MySQL_db_dependency = Annotated[Session, Depends(get_MySQL_db)]
 
 @router.post("/", status_code=status.HTTP_201_CREATED)  # which is the created status code for application.
-async def create_user(db: db_dependency, create_user_request: CreateUserRequest):
+async def create_user(db: Postgresql_db_dependency, create_user_request: CreateUserRequest):
     create_user_model = Users(
         username=create_user_request.username,
         hashed_password=bcrypt_context.hash(create_user_request.password),
@@ -59,7 +67,7 @@ async def create_user(db: db_dependency, create_user_request: CreateUserRequest)
 
 
 @router.post("/login", status_code=status.HTTP_200_OK)
-async def login(db: db_dependency, login_request: LoginRequest):
+async def login(db: Postgresql_db_dependency, login_request: LoginRequest):
     user = db.query(Users).filter(Users.username == login_request.username).first()
 
     if not user:
@@ -73,7 +81,7 @@ async def login(db: db_dependency, login_request: LoginRequest):
 
 @router.post("/token", response_model=Token)
 async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Postgresql_db_dependency
 ):
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user:

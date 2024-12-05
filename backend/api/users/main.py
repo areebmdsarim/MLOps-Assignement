@@ -1,6 +1,6 @@
 from fastapi import FastAPI, status, Depends, HTTPException
 from backend.db.models import users # models
-from backend.db.models.base import engine, SessionLocal #database; which has engine and session local for sqllite
+from backend.db.models.base import Postgresql_engine, Postgresql_SessionLocal #database; which has engine and session local for sqllite
 from typing import Annotated
 from sqlalchemy.orm import Session
 from backend.api.users import auth
@@ -23,10 +23,10 @@ app.include_router(auth_router)
 app.include_router(data_source_router)
 
 # users.Base.metadata.create_all(bind=engine) #models.Base
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=Postgresql_engine)
 
 def get_db():
-    db = SessionLocal()
+    db = Postgresql_SessionLocal()
     try:
         yield db
     finally:
