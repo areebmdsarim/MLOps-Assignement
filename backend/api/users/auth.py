@@ -59,29 +59,17 @@ async def create_user(db: db_dependency, create_user_request: CreateUserRequest)
 
 
 @router.post("/login", status_code=status.HTTP_200_OK)
-async def login(
-    db: db_dependency, 
-    login_request: LoginRequest
-):
-    # Fetch the user from the database by username
+async def login(db: db_dependency, login_request: LoginRequest):
     user = db.query(Users).filter(Users.username == login_request.username).first()
 
-    # Check if the user exists
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # Verify the provided password with the stored hashed password
     if not bcrypt_context.verify(login_request.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect password"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
 
-    # Return success response
     return {"message": "Login successful", "username": user.username}
+
 
 @router.post("/token", response_model=Token)
 async def login_for_access_token(
