@@ -79,31 +79,31 @@ async def login(db: Postgresql_db_dependency, login_request: LoginRequest):
     return {"message": "Login successful", "username": user.username}
 
 
-@router.post("/token", response_model=Token)
-async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Postgresql_db_dependency
-):
-    user = authenticate_user(form_data.username, form_data.password, db)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
-    token = create_access_token(user.username, timedelta(minutes=20))
-    return {'access_token': token, 'token_type': 'bearer'}
+# @router.post("/token", response_model=Token)
+# async def login_for_access_token(
+#     form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: Postgresql_db_dependency
+# ):
+#     user = authenticate_user(form_data.username, form_data.password, db)
+#     if not user:
+#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
+#     token = create_access_token(user.username, timedelta(minutes=20))
+#     return {'access_token': token, 'token_type': 'bearer'}
 
 
-def authenticate_user(username: str, password: str, db):
-    user = db.query(Users).filter(Users.username == username).first()
-    if not user:
-        return False
-    if not bcrypt_context.verify(password, user.hashed_password):
-        return False
-    return user
+# def authenticate_user(username: str, password: str, db):
+#     user = db.query(Users).filter(Users.username == username).first()
+#     if not user:
+#         return False
+#     if not bcrypt_context.verify(password, user.hashed_password):
+#         return False
+#     return user
 
 
-def create_access_token(username: str, expires_delta: timedelta):
-    encode = {'sub': username}
-    expires = datetime.utcnow() + expires_delta
-    encode.update({'exp': expires})
-    return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+# def create_access_token(username: str, expires_delta: timedelta):
+#     encode = {'sub': username}
+#     expires = datetime.utcnow() + expires_delta
+#     encode.update({'exp': expires})
+#     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):

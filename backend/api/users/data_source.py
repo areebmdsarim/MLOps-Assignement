@@ -58,6 +58,11 @@ class DataSourceResponse(BaseModel):
     connection_string: str
     databases: List[DatabaseResponse]
 
+class TableDescriptionResponse(BaseModel):
+    table_description: str
+    columns: List[Dict[str, str]]  # [{"name": "column_name", "description": "description"}]
+
+
 # class QARequest(BaseModel):
 #     question: str
 #     data_source_id: int
@@ -69,7 +74,7 @@ class DataSourceResponse(BaseModel):
         orm_mode = True
 
 
-@router.post("/", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/PostgreSQL", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
 async def create__postgresql_data_source(
     create_data_source_request: CreateDataSourceRequest,
     db: Postgresql_db_dependency,
@@ -285,10 +290,6 @@ def fetch_MySQL_data(data_source: DataSource, db: Session):
     cursor.close()
     conn.close()
 
-class TableDescriptionResponse(BaseModel):
-    table_description: str
-    columns: List[Dict[str, str]]  # [{"name": "column_name", "description": "description"}]
-
 
 def get_gemini_description(prompt: str) -> str:
     """
@@ -315,6 +316,66 @@ def get_gemini_description(prompt: str) -> str:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate description using Gemini API: {str(e)}",
         )
+
+@router.get(
+    "/{data_source_id}/databases/{database_name}/tables/{table_name}/describe",
+    response_model=TableDescriptionResponse,
+)
+async def describe_table(
+    data_source_id: int,
+    database_name: str,
+    table_name: str,
+    db: Postgresql_db_dependency,
+):
+    # Fetch the data source
+    data_source = db.query(DataSource).filter(DataSource.id == data_source_id).first()
+    if not data_source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found."
+        )
+
+    # Connect to the database
+    import psycopg2
+
+    try:
+        conn = psycopg2.connect(data_source.connection_string)
+        cursor = conn.cursor()
+
+        # Describe the table structure
+        cursor.execute(f"SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '{table_name}' AND table_schema = 'public';")
+        columns = cursor.fetchall()
+        if not columns:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Table not found."
+            )
+
+        # Generate descriptions using Gemini API
+        table_prompt = f"Describe the purpose and structure of the table '{table_name}'."
+        table_description = get_gemini_description(table_prompt)
+        
+        column_descriptions = []
+        for column_name, data_type in columns:
+            column_prompt = (
+                f"Describe the column '{column_name}' with data type '{data_type}' in the table '{table_name}'."
+            )
+            column_description = get_gemini_description(column_prompt)
+            column_descriptions.append(
+                {"name": column_name, "description": column_description}
+            )
+
+        return TableDescriptionResponse(
+            table_description=table_description, columns=column_descriptions
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to describe table: {str(e)}",
+        )
+    finally:
+        if conn:
+            cursor.close()
+            conn.close()
 
 @router.get(
     "/{data_source_id}/table_dependencies",
