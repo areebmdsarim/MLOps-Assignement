@@ -1,6 +1,6 @@
 from datetime import timedelta, datetime, timezone
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from jwt.exceptions import InvalidTokenError
@@ -11,11 +11,15 @@ from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from jose import jwt, JWTError
 from backend.schemas.schema import CreateUserRequest, Token, TokenData
+from fastapi.responses import JSONResponse
+
 
 router = APIRouter(
     prefix='/auth',
     tags=['auth']
 )
+
+blacklisted_tokens = set()
 
 SECRET_KEY = "6VfDpFnWZXQGlkOQjkx6hsUgkRXDHyNCT2Fd7BcOGU8"
 ALGORITHM = "HS256"
@@ -76,6 +80,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_bearer)], db: Po
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    await verify_token_blacklist(token)
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
@@ -95,6 +100,26 @@ async def get_current_active_user(
     if current_user.disabled == False:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+@router.post("/logout")
+async def logout(request: Request, token: Annotated[str, Depends(oauth2_bearer)], current_user: Annotated[Users, Depends(get_current_user)]):
+    """
+    Logout the user by invalidating the token.
+    """
+    blacklisted_tokens.add(token)
+    current_user.disabled = False
+    return JSONResponse(content={"message": "Successfully logged out"}, status_code=status.HTTP_200_OK)
+
+async def verify_token_blacklist(token: str):
+    """
+    Check if the token is blacklisted.
+    """
+    if token in blacklisted_tokens:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token is invalid or has been revoked",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 class UserResponse(BaseModel):
     username: str

@@ -2,8 +2,7 @@
  
 # Parts Remaining
  1. Docker 
- 2. Some code structuring is left including "no API should interact with DB directly, instead should route via services module" 
- 3. Logout endpoint with session details. 
+ 2. Some code structuring is left including "no API should interact with DB directly, instead should route via services module"
 
   These part are not DONE yet but can be done, just need some time.
 
